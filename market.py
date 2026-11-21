@@ -31,6 +31,7 @@ import time
 
 import character
 import cloud_sync
+import notify
 import paper
 from ah import DATA, gold, num, open_db, pct, table, write_csv
 from blizzard import HOUSES, REGIONS, fetch_all, russian_names
@@ -177,7 +178,7 @@ def report(db, args):
         mine = {}
 
     c = args.bw_cost
-    buys, sells = [], []
+    buys, sells, alerts = [], [], []
     for i, (amin, a, aqty) in A.items():
         name, sold, rate = stats.get(i, (None, 0, 0))
         if sold < args.min_sold or rate < args.min_rate or not a or a < args.min_price:
@@ -214,8 +215,18 @@ def report(db, args):
             if upside >= args.min_upside:
                 score = (floor * (1 - AH_CUT) - a) * min(sold, 100)  # gold per day of regional sales
                 buys.append((score, row + [gold(floor), pct(upside)], (i, row[0], a, floor)))
+                if usual and ratio / usual - 1 <= -args.alert_dev and sold >= args.alert_sold \
+                        and upside >= args.alert_upside:
+                    alerts.append(("buy", i, (
+                        f"🟢 <b>{row[0]}</b>: {gold(a)} (Орда {gold(h)}, Blackwater {gold(b)})\n"
+                        f"   цель {gold(floor)} ({pct(upside)} после комиссии), продаётся {sold:.0f}/день\n"
+                        f"   А/О сейчас {ratio:.2f}, обычно {usual:.2f}")))
         elif a > ceiling * (1 + args.min_dev):
             sells.append(((a / ceiling - 1) * min(sold, 100), row + [gold(ceiling)]))
+            if mine.get(i):
+                alerts.append(("sell", i, (
+                    f"🔴 <b>{row[0]}</b>: у тебя {mine[i]} шт. Сейчас {gold(a)}, коридор держит до {gold(ceiling)}\n"
+                    f"   выше коридора — сюда повезут товар, цена скорее упадёт. Продаётся {sold:.0f}/день")))
 
     headers = ["Предмет", fac[args.faction], fac[other_faction], "Blackwater", "A/О сейчас", "A/О обычно",
                "vs др. серверы", "vs своя 7д", "Прод./день", "У тебя"]
@@ -242,6 +253,39 @@ def report(db, args):
         opened = paper.open_trades(db, args.region, home, ts, [s for _, _, s in buys], bool(hist_home))
         print(f"Виртуальные сделки: открыто новых {opened}, закрыто {closed}. Итоги: python paper.py")
 
+    if not args.no_alerts:
+        send_alerts(db, args.region, home, alerts, args)
+
+
+def send_alerts(db, region, home, alerts, args):
+    """Telegram message for strong signals; each item at most once a day per kind."""
+    days = db.execute("SELECT COUNT(DISTINCT day) FROM daily WHERE region=? AND house=?", (region, home)).fetchone()[0]
+    if days < args.alert_history:
+        return  # without a few days of history the "usual" gap is unknown and alerts would be noise
+    db.execute("CREATE TABLE IF NOT EXISTS alerts_sent (kind TEXT, item_id INTEGER, day TEXT, "
+               "PRIMARY KEY (kind, item_id, day))")
+    today = time.strftime("%Y-%m-%d")
+    fresh = [(k, i, t) for k, i, t in alerts if not db.execute(
+        "SELECT 1 FROM alerts_sent WHERE kind=? AND item_id=? AND day=?", (k, i, today)).fetchone()]
+    if not fresh:
+        return
+    buys = [t for k, _, t in fresh if k == "buy"]
+    sells = [t for k, _, t in fresh if k == "sell"]
+    text = ""
+    if buys:
+        text += "<b>Сильные сигналы на покупку</b> (EU PvP Альянс)\n\n" + "\n\n".join(buys[:8]) + "\n\n"
+    if sells:
+        text += "<b>Продать из запасов</b>\n\n" + "\n\n".join(sells[:8])
+    try:
+        sent = notify.send(text.strip())
+    except Exception as e:
+        print(f"  ! Telegram: {e}", file=sys.stderr)
+        return
+    if sent:
+        db.executemany("INSERT OR IGNORE INTO alerts_sent VALUES (?,?,?)", [(k, i, today) for k, i, _ in fresh])
+        db.commit()
+        print(f"Telegram: отправлено сигналов {len(fresh)}")
+
 
 def main():
     p = argparse.ArgumentParser(description="WoW Forever medium-term signals")
@@ -263,6 +307,11 @@ def main():
     p.add_argument("--no-collect", action="store_true", help="don't download, report from stored data")
     p.add_argument("--en", action="store_true", help="English item names")
     p.add_argument("--no-paper", action="store_true", help="don't open/update virtual trades")
+    p.add_argument("--no-alerts", action="store_true", help="don't send Telegram alerts")
+    p.add_argument("--alert-dev", type=float, default=0.25, help="alert: Alliance/Horde ratio below usual by this")
+    p.add_argument("--alert-sold", type=float, default=50, help="alert: min sold per day in region")
+    p.add_argument("--alert-upside", type=float, default=0.15, help="alert: min gain after AH cut")
+    p.add_argument("--alert-history", type=int, default=3, help="alert only after this many days of history")
     p.add_argument("--log", action="store_true", help="append output to data/run.log")
     args = p.parse_args()
 
