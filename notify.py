@@ -7,6 +7,7 @@ Setup (once):
      It finds your chat id, saves TELEGRAM_CHAT_ID to .env and sends a test message.
 
 Usage elsewhere:  from notify import send;  send("text")   (HTML formatting, does nothing if not set up)
+Send a file:      python notify.py send reports/brief.txt
 """
 
 import json
@@ -68,6 +69,9 @@ def setup():
 if __name__ == "__main__":
     if sys.argv[1:] == ["setup"]:
         setup()
+    elif len(sys.argv) == 3 and sys.argv[1] == "send":
+        with open(sys.argv[2], encoding="utf-8") as f:
+            print("отправлено" if send(f.read()) else "бот не настроен: python notify.py setup")
     elif sys.argv[1:] == ["test"]:
         print("отправлено" if send("Тестовое сообщение 👋") else "бот не настроен: python notify.py setup")
     else:
