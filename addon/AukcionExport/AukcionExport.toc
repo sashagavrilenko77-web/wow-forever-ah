@@ -1,0 +1,7 @@
+## Interface: 16001
+## Title: AukcionExport
+## Notes: Saves gold, bags, bank, mail and own auctions for the local trading scripts.
+## Version: 1.0
+## SavedVariables: AukcionExportDB
+
+AukcionExport.lua
