@@ -31,6 +31,7 @@ import time
 
 import character
 import cloud_sync
+import events
 import notify
 import paper
 from ah import DATA, gold, num, open_db, pct, table, write_csv
@@ -255,6 +256,10 @@ def report(db, args):
 
     if not args.no_alerts:
         send_alerts(db, args.region, home, alerts, args)
+        try:
+            events.notify_events(db, {i: v[1] for i, v in A.items()}, mine, notify.send)
+        except Exception as e:
+            print(f"  ! события (ярмарка): {e}", file=sys.stderr)
 
 
 def send_alerts(db, region, home, alerts, args):

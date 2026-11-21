@@ -11,6 +11,7 @@ import os
 import time
 
 import character
+import events
 import paper
 from ah import DATA, HERE, gold, open_db, pct
 from market import median
@@ -116,11 +117,22 @@ def you(db):
         print("Самое ценное у Альянса:", ", ".join(f"{names.get(i) or i} ×{n} ≈ {gold(v)}" for v, i, n in top if v))
 
 
+def seasonal(db):
+    section("События (ярмарка): закупка до / продажа во время, ← = выполнено условие")
+    try:
+        mine = character.holdings(character.load_chars(), "Alliance")
+    except Exception:
+        mine = {}
+    lines = events.status(character.latest_prices(db, REGION, HOME), mine)
+    print("\n".join(lines) if lines else "Нет предстоящих событий.")
+
+
 def main():
     db = open_db()
     print(f"# Данные для разбора на {time.strftime('%d.%m.%Y %H:%M')} (EU PvP, Альянс, аукцион {HOME})")
     coverage(db)
     market_trend(db)
+    seasonal(db)
     signals("signals_buy.csv", "Сигналы на покупку (лучшие по ожидаемой прибыли)", 15)
     signals("signals_sell.csv", "Сигналы продавать / не покупать", 10)
     paper_results(db)
