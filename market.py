@@ -34,8 +34,9 @@ import cloud_sync
 import events
 import notify
 import paper
+import world
 from ah import DATA, gold, num, open_db, pct, table, write_csv
-from blizzard import HOUSES, REGIONS, fetch_all, russian_names
+from blizzard import HOUSES, LEVEL_REGIONS, fetch_all, russian_names
 
 HOURLY_DAYS = 21
 AH_CUT = 0.05
@@ -55,6 +56,7 @@ def ensure_tables(db):
             region TEXT, house INTEGER, ts INTEGER, item_id INTEGER,
             min_price INTEGER, p25 INTEGER, qty INTEGER, auctions INTEGER,
             PRIMARY KEY (region, house, item_id, ts)) WITHOUT ROWID;
+        CREATE INDEX IF NOT EXISTS hourly_ts ON hourly (region, house, ts);
         CREATE TABLE IF NOT EXISTS daily (
             region TEXT, house INTEGER, day TEXT, item_id INTEGER,
             min_price INTEGER, p25 INTEGER, qty INTEGER,
@@ -152,7 +154,7 @@ def report(db, args):
     if not A:
         sys.exit("No snapshots yet: run without --no-collect first.")
     # Other economies: the faction houses of every other ruleset in both regions.
-    others = [latest(db, r, h) for r in REGIONS for h, (rs, f) in HOUSES.items()
+    others = [latest(db, r, h) for r in LEVEL_REGIONS for h, (rs, f) in HOUSES.items()
               if f != "blackwater" and not (r == args.region and rs == args.ruleset)]
     others = [o for o in others if o]
 
@@ -178,6 +180,9 @@ def report(db, args):
         print(f"  ! не удалось прочитать данные персонажей: {e}", file=sys.stderr)
         mine = {}
 
+    wd = world.compute(db)
+    local = wd["houses"].get((args.region, home), {})
+
     c = args.bw_cost
     buys, sells, alerts = [], [], []
     for i, (amin, a, aqty) in A.items():
@@ -193,10 +198,15 @@ def report(db, args):
         vs_own = a / own - 1 if own else None
         ratio = a / h if h else None
         usual = hist_ratio.get(i)
+        # Our price move vs the median move on all faction houses of the world (same window).
+        win, here = world.pick(local, i)
+        there = wd["items"][win].get(i, (None, 0))[0] if win else None
+        tag = world.classify(here, there)
 
         row = [names.get(i) or f"item {i}", gold(a), gold(h), gold(b),
                f"{ratio:.2f}" if ratio else "-", f"{usual:.2f}" if usual else "-",
-               pct(vs_fair), pct(vs_own), f"{sold:.0f}", mine.get(i, "")]
+               pct(vs_fair), pct(vs_own), f"{sold:.0f}", mine.get(i, ""),
+               f"{pct(here)} / {pct(there)} за {win}" if win else "-", tag]
 
         if not h or aqty < args.min_qty or H[i][2] < args.min_qty:
             continue
@@ -213,9 +223,11 @@ def report(db, args):
 
         if a < floor:
             upside = floor * (1 - AH_CUT) / a - 1
+            if tag == "дешевеет во всей игре":
+                continue  # not a local discount but a game-wide decline: don't fight the trend
             if upside >= args.min_upside:
                 score = (floor * (1 - AH_CUT) - a) * min(sold, 100)  # gold per day of regional sales
-                buys.append((score, row + [gold(floor), pct(upside)], (i, row[0], a, floor)))
+                buys.append((score, row + [gold(floor), pct(upside), i], (i, row[0], a, floor)))
                 if usual and ratio / usual - 1 <= -args.alert_dev and sold >= args.alert_sold \
                         and upside >= args.alert_upside:
                     alerts.append(("buy", i, (
@@ -230,7 +242,7 @@ def report(db, args):
                     f"   выше коридора — сюда повезут товар, цена скорее упадёт. Продаётся {sold:.0f}/день")))
 
     headers = ["Предмет", fac[args.faction], fac[other_faction], "Blackwater", "A/О сейчас", "A/О обычно",
-               "vs др. серверы", "vs своя 7д", "Прод./день", "У тебя"]
+               "vs др. серверы", "vs своя 7д", "Прод./день", "У тебя", "Изм. у нас / в мире", "Откуда движение"]
     buys.sort(key=lambda x: -x[0])
     sells.sort(key=lambda x: -x[0])
     buy_rows = [r for _, r, _ in buys]
@@ -240,11 +252,11 @@ def report(db, args):
     if not hist_home:
         print("История по дням появится после первых полных суток сбора: колонки 'обычно' и '7д' пока пустые.")
     table("ПОКУПАТЬ: у нас дешевле, чем позволяет коридор (цена должна подтянуться)",
-          headers + ["Цель", "Потенциал"], buy_rows[:args.top])
+          headers + ["Цель", "Потенциал", "id"], buy_rows[:args.top])
     table("ПРОДАВАТЬ / НЕ ПОКУПАТЬ: у нас дороже, чем позволяет коридор (сюда повезут товар)",
           headers + ["Потолок"], sell_rows[:args.top])
 
-    write_csv("signals_buy.csv", headers + ["Цель", "Потенциал"], buy_rows)
+    write_csv("signals_buy.csv", headers + ["Цель", "Потенциал", "id"], buy_rows)
     write_csv("signals_sell.csv", headers + ["Потолок"], sell_rows)
     print("\nОтчёты: reports/signals_buy.csv, reports/signals_sell.csv")
 

@@ -12,7 +12,9 @@ import time
 
 import character
 import events
+import item_card
 import paper
+import world
 from ah import DATA, HERE, gold, open_db, pct
 from market import median
 
@@ -127,14 +129,44 @@ def seasonal(db):
     print("\n".join(lines) if lines else "Нет предстоящих событий.")
 
 
+def world_section(db, wd):
+    section("Мировой индекс (медиана изменений цен по аукционам Альянса и Орды EU, US, Корея, Тайвань)")
+    for w in world.WINDOWS:
+        m, n = wd["market"][w]
+        regs = ", ".join(f"{r.upper()} {pct(v)}" for r, v in wd["regions"][w].items())
+        print(f"За {w}: весь рынок {pct(m) if m is not None else 'нет данных'} ({n} товаров); по регионам: {regs or '—'}")
+
+
+def cards(db, wd, n):
+    """Detailed cards (with plan and branches) for the best buy candidates."""
+    section(f"Подробные карточки {n} лучших кандидатов (ходовые, не падающие во всей игре)")
+    path = os.path.join(HERE, "reports", "signals_buy.csv")
+    if not os.path.exists(path):
+        print("нет отчёта")
+        return
+    with open(path, encoding="utf-8-sig") as f:
+        rows = list(csv.DictReader(f))
+    try:
+        mine = character.holdings(character.load_chars(), "Alliance")
+    except Exception:
+        mine = {}
+    good = [r for r in rows if float(r["Прод./день"] or 0) >= 30
+            and not any(w in r["Предмет"] for w in ("ящик", "Задание", "задание"))]
+    for r in good[:n]:
+        print("\n".join(item_card.card(db, int(r["id"]), wd, mine)) + "\n")
+
+
 def main():
     db = open_db()
     print(f"# Данные для разбора на {time.strftime('%d.%m.%Y %H:%M')} (EU PvP, Альянс, аукцион {HOME})")
+    wd = world.compute(db)
     coverage(db)
+    world_section(db, wd)
     market_trend(db)
     seasonal(db)
     signals("signals_buy.csv", "Сигналы на покупку (лучшие по ожидаемой прибыли)", 15)
     signals("signals_sell.csv", "Сигналы продавать / не покупать", 10)
+    cards(db, wd, 3)
     paper_results(db)
     you(db)
 

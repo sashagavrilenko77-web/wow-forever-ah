@@ -42,9 +42,16 @@ def send(text):
     token, chat = e.get("TELEGRAM_BOT_TOKEN"), e.get("TELEGRAM_CHAT_ID")
     if not token or not chat:
         return False
-    for i in range(0, len(text), 4000):  # Telegram limit is 4096 characters per message
-        api(token, "sendMessage", chat_id=chat, text=text[i:i + 4000], parse_mode="HTML",
-            disable_web_page_preview="true")
+    # Telegram allows 4096 characters per message; split between paragraphs so HTML tags stay closed.
+    parts, cur = [], ""
+    for para in text.split("\n\n"):
+        if cur and len(cur) + len(para) + 2 > 3900:
+            parts.append(cur)
+            cur = ""
+        cur = f"{cur}\n\n{para}" if cur else para
+    parts.append(cur)
+    for part in parts:
+        api(token, "sendMessage", chat_id=chat, text=part, parse_mode="HTML", disable_web_page_preview="true")
     return True
 
 

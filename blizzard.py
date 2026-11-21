@@ -62,7 +62,7 @@ def get_json(url):
 # ---------- Forever auction houses ----------
 
 AUCTIONS = ("https://{region}.api.blizzard.com/data/wow/ruleset/1/auctions/{house}{suffix}"
-            "?namespace=dynamic-forever-{region}&locale=en_GB")
+            "?namespace=dynamic-forever-{region}&locale=en_US")
 
 # Same ids in EU and US. Matched against TSM per-house prices (Blackwater by numbering).
 HOUSES = {
@@ -71,7 +71,11 @@ HOUSES = {
     119: ("roleplay", "alliance"), 120: ("roleplay", "horde"), 121: ("roleplay", "blackwater"),
     123: ("roleplay-pvp", "alliance"), 124: ("roleplay-pvp", "horde"), 125: ("roleplay-pvp", "blackwater"),
 }
-REGIONS = ("eu", "us")
+REGIONS = ("eu", "us", "kr", "tw")
+# Price *levels* are comparable only between the big western regions; KR/TW are used for price *changes*.
+LEVEL_REGIONS = ("eu", "us")
+# KR/TW have only PvP and Normal houses; the rest are empty there.
+EMPTY = {("kr", h) for h in (119, 120, 121, 123, 124, 125)} | {("tw", h) for h in (119, 120, 121, 123, 124, 125)}
 
 
 def summarize(listings):
@@ -105,9 +109,9 @@ def fetch_house(region, house):
 
 
 def fetch_all():
-    """Yield (region, house, ts, items, error) for every Forever house in EU and US."""
+    """Yield (region, house, ts, items, error) for every Forever house in EU, US, KR and TW."""
     token()  # get the token once before the threads start
-    jobs = [(r, h) for r in REGIONS for h in HOUSES]
+    jobs = [(r, h) for r in REGIONS for h in HOUSES if (r, h) not in EMPTY]
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
         futures = {pool.submit(fetch_house, r, h): (r, h) for r, h in jobs}
         for f in concurrent.futures.as_completed(futures):
