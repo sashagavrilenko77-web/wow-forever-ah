@@ -1,12 +1,20 @@
 name: night-collect
 
-# Every hour from 22:35 to 09:35 Kyiv time (UTC+2 in winter; one hour later in summer),
-# while the PC is usually off. The PC collects the daytime hours itself.
-# :35 because Blizzard publishes new auction data at about :23 past the hour.
+# Every 10 minutes from 22:00 to 10:00 Kyiv time (UTC+2 in winter; one hour later in summer),
+# while the PC is usually off. GitHub skips many scheduled runs under load, so we try often;
+# each Blizzard hourly snapshot is uploaded only once (artifact name = snapshot hour).
 on:
   schedule:
-    - cron: "35 20-23,0-7 * * *"
+    - cron: "*/10 20-23,0-7 * * *"
   workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: night-collect
+  cancel-in-progress: false
 
 jobs:
   collect:
@@ -18,13 +26,23 @@ jobs:
         with:
           python-version: "3.12"
       - name: Collect all Forever auction houses
+        id: collect
         env:
           BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
           BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
         run: python cloud_collect.py
-      - uses: actions/upload-artifact@v6
+      - name: Skip if this hour is already uploaded
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=$(gh api "repos/${{ github.repository }}/actions/artifacts?name=night-${{ steps.collect.outputs.key }}" --jq '.total_count')
+          echo "exists=$n" >> "$GITHUB_OUTPUT"
+          echo "snapshot ${{ steps.collect.outputs.key }}: $n artifact(s) already"
+      - if: steps.check.outputs.exists == '0'
+        uses: actions/upload-artifact@v6
         with:
-          name: night-${{ github.run_id }}
+          name: night-${{ steps.collect.outputs.key }}
           path: snapshots/*.csv.gz
           retention-days: 3
           compression-level: 0

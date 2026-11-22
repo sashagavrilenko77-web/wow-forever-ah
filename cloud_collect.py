@@ -20,6 +20,7 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     path = os.path.join(OUT, time.strftime("%Y%m%d-%H%M", time.gmtime()) + ".csv.gz")
     houses = failed = 0
+    newest = 0
     with gzip.open(path, "wt", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["region", "house", "ts", "item_id", "min_price", "p25", "qty", "auctions"])
@@ -29,11 +30,17 @@ def main():
                 failed += 1
                 continue
             houses += 1
+            newest = max(newest, ts)
             for i, s in items.items():
                 w.writerow([region, house, ts, i, round(s[0]), round(s[1]), s[2], s[3]])
     print(f"{path}: {houses} houses, {failed} failed, {os.path.getsize(path) // 1024} KB")
     if not houses:
         sys.exit(1)
+    # The workflow runs every 10 minutes but Blizzard publishes hourly: name the artifact after the
+    # Blizzard snapshot hour so the workflow uploads each hour only once.
+    if os.environ.get("GITHUB_OUTPUT"):
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"key={time.strftime('%Y%m%d-%H', time.gmtime(newest))}\n")
 
 
 if __name__ == "__main__":
