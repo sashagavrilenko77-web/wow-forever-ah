@@ -14,6 +14,7 @@ import character
 import events
 import item_card
 import paper
+import positions
 import world
 from ah import DATA, HERE, gold, open_db, pct
 from market import median
@@ -166,6 +167,8 @@ def main():
     seasonal(db)
     signals("signals_buy.csv", "Сигналы на покупку (лучшие по ожидаемой прибыли)", 15)
     signals("signals_sell.csv", "Сигналы продавать / не покупать", 10)
+    section("Твои реальные позиции (positions.py)")
+    print("\n".join(positions.lines(db)) or "Открытых позиций нет.")
     cards(db, wd, 3)
     paper_results(db)
     you(db)

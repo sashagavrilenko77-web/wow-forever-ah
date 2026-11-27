@@ -34,6 +34,7 @@ import cloud_sync
 import events
 import notify
 import paper
+import positions
 import world
 from ah import DATA, gold, num, open_db, pct, table, write_csv
 from blizzard import HOUSES, LEVEL_REGIONS, fetch_all, russian_names
@@ -272,6 +273,10 @@ def report(db, args):
             events.notify_events(db, {i: v[1] for i, v in A.items()}, mine, notify.send)
         except Exception as e:
             print(f"  ! события (ярмарка): {e}", file=sys.stderr)
+        try:
+            positions.notify_positions(db, notify.send)
+        except Exception as e:
+            print(f"  ! позиции: {e}", file=sys.stderr)
 
 
 def send_alerts(db, region, home, alerts, args):
